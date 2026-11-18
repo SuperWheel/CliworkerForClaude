@@ -290,3 +290,7 @@ Windows Computer Use（server/windows-cu.mjs）
 ```
 
 Antigravity / ZCode 由 `server/engines.mjs` 每轮启动独立子进程，事件进入同一个 AgentManager；不依赖 Codex app-server 运行。
+
+## 许可证
+
+[MIT](LICENSE)
