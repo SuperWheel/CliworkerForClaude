@@ -1,0 +1,19 @@
+{
+  "name": "codex-bridge",
+  "version": "0.3.0",
+  "description": "Run Codex, Google Antigravity and ZCode as parallel native sub-agents inside Claude Code, with live transcripts and session continuation; Codex approvals, review, MCP and Computer Use on the Mac or a Windows PC.",
+  "author": {
+    "name": "李依伦 (Leeyl)"
+  },
+  "keywords": [
+    "codex",
+    "openai",
+    "sub-agent",
+    "parallel",
+    "computer-use",
+    "mcp",
+    "antigravity",
+    "agy",
+    "zcode"
+  ]
+}

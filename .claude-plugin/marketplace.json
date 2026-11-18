@@ -1,0 +1,14 @@
+{
+  "name": "leeyl-codex-bridge",
+  "description": "Local marketplace for the codex-bridge Claude Code plugin.",
+  "owner": {
+    "name": "李依伦 (Leeyl)"
+  },
+  "plugins": [
+    {
+      "name": "codex-bridge",
+      "source": "./plugins/codex-bridge",
+      "description": "Parallel OpenAI Codex CLI sub-agents for Claude Code, with Computer Use bridging."
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "codex": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/index.mjs"],
+      "env": {
+        "CODEX_BRIDGE_MAX_PARALLEL": "8"
+      }
+    }
+  }
+}
