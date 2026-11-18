@@ -1,51 +1,53 @@
 # CliworkerForClaude
 
-在 Claude Code 里并行调度 Codex、Antigravity、ZCode 的插件（插件名 `codex-bridge`）。
+English | [简体中文](README.zh-CN.md)
 
-把 Codex、Google Antigravity 和 ZCode CLI 变成 Claude Code 的原生子 agent（v0.3.0）：
+A Claude Code plugin (plugin name `codex-bridge`) that runs Codex, Antigravity and ZCode in parallel from inside Claude Code.
 
-- **并行执行**：一个 `codex app-server` 进程承载多个 thread，每个 Codex 子 agent 独占一个 thread，真正并行（默认最多 8 个，超出的排队）
-- **原生展示（约定：一律走子 agent）**：每个 Codex 任务都通过 Agent 工具启动 `codex-bridge:codex-worker`（GUI 用 `codex-computer-use`，审查用 `codex-reviewer`），在桌面 app 和终端里以原生子 agent 的形式出现。主会话不直接调用 `codex_spawn` / `codex_run` / `codex_send` / `codex_review`；展开即可看到 Codex 的实时对话：消息、shell 命令与输出、文件改动、MCP 调用、计划、审批
-- **审批中继**：Codex 的命令、文件、权限审批，Computer Use 的应用授权，以及 Codex 提出的问题，都会转给 Claude 处理（`codex_respond`）
-- **功能桥接**：
-  - Computer Use（`cua_repl`）：可以让 Codex agent 去操作 Mac 应用和浏览器，也可以由 Claude 直接执行 JS 并拿回截图
-  - Windows Computer Use：经 SSH 使用 Windows 电脑上 Codex Desktop 自带的 Computer Use，Claude 可以不经模型直接逐步操作，也可以交给 Codex agent（见下文）
-  - Codex 中配置的所有 MCP 服务和 connector（Gmail、Drive、Slack 等）都能直接调用：`codex_mcp_call`
-  - Codex 内置代码审查：`codex_review`
-  - Codex skills（附加到任务上）、模型和推理强度切换、恢复旧 thread、结构化输出
+It turns the OpenAI Codex, Google Antigravity and ZCode CLIs into native Claude Code sub-agents (v0.3.0):
 
-## 安装
+- **Real parallelism**: one `codex app-server` process hosts many threads, and each Codex sub-agent owns one thread (up to 8 at once by default; the rest wait in a queue).
+- **Native display (convention: always go through a sub-agent)**: every Codex task is launched with the Agent tool as `codex-bridge:codex-worker` (`codex-computer-use` for GUI work, `codex-reviewer` for reviews), so it shows up as a native sub-agent in the desktop app and the terminal. The main conversation never calls `codex_spawn` / `codex_run` / `codex_send` / `codex_review` directly. Expand a sub-agent to watch Codex live: messages, shell commands and output, file changes, MCP calls, plans and approvals.
+- **Approval relay**: Codex command, file and permission approvals, Computer Use app permissions, and questions Codex asks are all handed to Claude (`codex_respond`).
+- **Bridged features**:
+  - Computer Use (`cua_repl`): let a Codex agent operate Mac apps and browsers, or have Claude run JS directly and get screenshots back.
+  - Windows Computer Use: use the Computer Use built into Codex Desktop on a Windows PC over SSH. Claude can drive it step by step without a model, or hand it to a Codex agent (see below).
+  - Every MCP server and connector configured in Codex (Gmail, Drive, Slack, …) can be called directly: `codex_mcp_call`.
+  - Codex's built-in code review: `codex_review`.
+  - Codex skills (attached to a task), model and reasoning-effort switching, resuming old threads, structured output.
+
+## Installation
 
 ```bash
 claude plugin marketplace add SuperWheel/CliworkerForClaude && claude plugin install codex-bridge@leeyl-codex-bridge
 ```
 
-装好后**新开一个 Claude Code 会话**才会加载。桌面 app 里也可以这样装：点输入框旁的 **+** → **Plugins** → **Add marketplace**，填 `SuperWheel/CliworkerForClaude`，再添加 `codex-bridge` 插件。
+The plugin loads in the **next new Claude Code session**. In the desktop app you can also click **+** next to the input box → **Plugins** → **Add marketplace**, enter `SuperWheel/CliworkerForClaude`, then add the `codex-bridge` plugin.
 
-### 前置条件
+### Prerequisites
 
-| 必需 / 可选 | 软件 | 检查方式 |
+| Required / optional | Software | How to check |
 |---|---|---|
-| 必需 | Node.js ≥ 18 | `node -v` |
-| 必需 | [Codex CLI](https://github.com/openai/codex)，已登录 | `codex --version`、`codex login status` |
-| 可选 | Google Antigravity CLI（`agy`），用 `/codex-bridge:agy` 时需要 | `agy --version` |
-| 可选 | ZCode 桌面版（macOS，`/Applications/ZCode.app`），用 `/codex-bridge:zcode` 时需要；要用账号里的 GLM 等模型，先运行 `zcode login` | 打开 ZCode 看能否正常对话 |
-| 可选 | Codex Desktop（ChatGPT.app）自带的 Computer Use，用 `/codex-bridge:codex-cu` 时需要 | `codex mcp list` 里有 `cua_repl` |
+| Required | Node.js ≥ 18 | `node -v` |
+| Required | [Codex CLI](https://github.com/openai/codex), logged in | `codex --version`, `codex login status` |
+| Optional | Google Antigravity CLI (`agy`), for `/codex-bridge:agy` | `agy --version` |
+| Optional | ZCode desktop app (macOS, `/Applications/ZCode.app`), for `/codex-bridge:zcode`; run `zcode login` first to use your account's models such as GLM | Open ZCode and check that it can chat |
+| Optional | Computer Use from Codex Desktop (ChatGPT.app), for `/codex-bridge:codex-cu` | `cua_repl` appears in `codex mcp list` |
 
-没装的引擎不影响其他功能，`codex_capabilities` 会列出本机实际可用的引擎和模型。
+Missing engines don't affect anything else. `codex_capabilities` lists the engines and models actually available on your machine.
 
-### 交给 Claude 安装
+### Let Claude install it
 
-把下面这段话直接发给 Claude Code，它会替你检查环境、安装并验证：
+Send this message to Claude Code and it will check your environment, install the plugin and verify it:
 
 ```text
-请帮我安装 Claude Code 插件 CliworkerForClaude（GitHub：SuperWheel/CliworkerForClaude，插件名 codex-bridge）。
-1. 先检查环境：node -v（需要 ≥ 18）、codex --version 和 codex login status（需要已登录）。可选引擎也看一下：agy --version、/Applications/ZCode.app 是否存在。缺了必需项就停下来告诉我怎么装，不要替我登录任何账号。
-2. 安装：运行 claude plugin marketplace add SuperWheel/CliworkerForClaude，再运行 claude plugin install codex-bridge@leeyl-codex-bridge。
-3. 告诉我安装结果、哪些可选引擎可用，并提醒我新开一个会话。新会话里用 /codex-bridge:codex-status 验证插件已加载。
+Please install the Claude Code plugin CliworkerForClaude (GitHub: SuperWheel/CliworkerForClaude, plugin name codex-bridge).
+1. Check the environment first: node -v (needs ≥ 18), codex --version and codex login status (must be logged in). Also check the optional engines: agy --version, and whether /Applications/ZCode.app exists. If anything required is missing, stop and tell me how to install it. Do not log in to any account for me.
+2. Install: run claude plugin marketplace add SuperWheel/CliworkerForClaude, then claude plugin install codex-bridge@leeyl-codex-bridge.
+3. Tell me the result and which optional engines are available, and remind me to start a new session. In the new session, run /codex-bridge:codex-status to confirm the plugin is loaded.
 ```
 
-### 更新与卸载
+### Update and uninstall
 
 ```bash
 claude plugin marketplace update leeyl-codex-bridge && claude plugin update codex-bridge@leeyl-codex-bridge
@@ -55,111 +57,111 @@ claude plugin marketplace update leeyl-codex-bridge && claude plugin update code
 claude plugin uninstall codex-bridge@leeyl-codex-bridge
 ```
 
-### 本地开发
+### Local development
 
-克隆仓库后，把本地目录加成插件市场，改完代码后把 `plugins/codex-bridge/.claude-plugin/plugin.json` 的 `version` 加 1，再执行上面的更新命令：
+Clone the repo and add the local folder as a marketplace. After changing code, bump `version` in `plugins/codex-bridge/.claude-plugin/plugin.json`, then run the update command above:
 
 ```bash
 claude plugin marketplace add ./CliworkerForClaude && claude plugin install codex-bridge@leeyl-codex-bridge
 ```
 
-## 用法
+## Usage
 
-| 命令 | 作用 |
+| Command | What it does |
 |---|---|
-| `/codex-bridge:codex <任务>` | 交给 1 个 Codex 子 agent |
-| `/codex-bridge:agy <任务>` | 交给 1 个 Antigravity 子 agent |
-| `/codex-bridge:zcode <任务>` | 交给 1 个 ZCode 子 agent |
-| `/codex-bridge:codex-parallel <总体目标或任务列表>` | 拆成互不依赖的任务，同时启动多个 Codex 子 agent |
-| `/codex-bridge:codex-cu <应用 + 要做的事>` | 由 Codex 通过 Computer Use 操作 Mac 应用、浏览器或 Windows 电脑 |
-| `/codex-bridge:codex-review [uncommitted / branch main / commit <sha> / 自定义说明]` | 用 Codex 做代码审查 |
-| `/codex-bridge:codex-status` | 查看所有 Codex agent 的状态 |
+| `/codex-bridge:codex <task>` | Hand a task to one Codex sub-agent |
+| `/codex-bridge:agy <task>` | Hand a task to one Antigravity sub-agent |
+| `/codex-bridge:zcode <task>` | Hand a task to one ZCode sub-agent |
+| `/codex-bridge:codex-parallel <goal or task list>` | Split into independent tasks and start several Codex sub-agents at once |
+| `/codex-bridge:codex-cu <app + what to do>` | Have Codex operate a Mac app, a browser or the Windows PC via Computer Use |
+| `/codex-bridge:codex-review [uncommitted / branch main / commit <sha> / custom instructions]` | Code review by Codex |
+| `/codex-bridge:codex-status` | Show the status of all Codex agents |
 
-也可以直接用自然语言，例如「用 3 个 codex 并行分别给 a、b、c 模块补单测」，Claude 会在同一条消息里启动 3 个 `codex-worker`。
+Plain language works too, e.g. "use 3 Codex agents in parallel to add unit tests to modules a, b and c". Claude starts 3 `codex-worker` sub-agents in a single message.
 
-### 子 agent 类型
+### Sub-agent types
 
-| agent | 用途 |
+| Agent | Purpose |
 |---|---|
-| `codex-bridge:codex-worker` | 启动 Codex → 流式转发 → 处理审批 → 返回报告 |
-| `codex-bridge:antigravity-worker` | 启动 Antigravity → 实时步骤与最终答案 → 返回报告 |
-| `codex-bridge:zcode-worker` | 启动 ZCode → 实时工具与文本事件 → 返回报告 |
-| `codex-bridge:codex-computer-use` | 开启 Computer Use；高风险 UI 操作一律拒绝并交回给你确认 |
-| `codex-bridge:codex-reviewer` | 只读运行 Codex 审查并整理发现的问题 |
+| `codex-bridge:codex-worker` | Start Codex → stream its transcript → handle approvals → return a report |
+| `codex-bridge:antigravity-worker` | Start Antigravity → live steps and final answer → return a report |
+| `codex-bridge:zcode-worker` | Start ZCode → live tool and text events → return a report |
+| `codex-bridge:codex-computer-use` | Computer Use enabled; high-risk UI actions are always declined and handed back to you |
+| `codex-bridge:codex-reviewer` | Run a read-only Codex review and summarize the findings |
 
-以上中继 agent 默认用 `sonnet`，只负责转发和审批判断，实际工作由各自的 CLI 模型完成。想换模型，改 `plugins/codex-bridge/agents/*.md` 里的 `model:`。
+These relay agents use `sonnet` by default. They only relay and decide approvals; the real work is done by each CLI's own model. To change the relay model, edit `model:` in `plugins/codex-bridge/agents/*.md`.
 
-## MCP 工具一览
+## MCP tools
 
-| 工具 | 说明 |
+| Tool | Description |
 |---|---|
-| `codex_spawn` | 后台启动 1 个或多个（`tasks:[...]`）引擎 agent，`engine` 默认 codex，可选 antigravity / zcode，立即返回 agent_id |
-| `codex_wait` | 等待进展，返回新增的 transcript；有 agent 完成或需要输入时提前返回；带 MCP progress 通知 |
-| `codex_run` | 阻塞式：启动并跑完，适合一次性小任务 |
-| `codex_send` | 追问：agent 空闲时在同一 thread 开新一轮，运行中 steer 仅 Codex 支持，其他引擎需等待 IDLE |
-| `codex_respond` | 处理审批或问题：accept / accept_for_session / decline / cancel |
-| `codex_interrupt` / `codex_close` | 中断当前轮次 / 关闭（可选择归档 thread） |
-| `codex_status` / `codex_transcript` | 列出全部 agent，或查看某个 agent 的完整日志 |
-| `codex_review` | Codex 内置审查（只读） |
-| `codex_capabilities` | 列出可用模型、Codex 的 MCP 服务和工具、skills，以及 Computer Use 是否可用 |
-| `codex_mcp_call` | 直接调用 Codex 中配置的任意 MCP 工具 |
-| `codex_computer_use` | 直接在 Codex 的 `cua_repl` 里执行 JS（截图以图片形式返回）；`target:"windows"` 改在 Windows 电脑上执行，`allow_apps` 列出用户已同意的应用 |
-| `codex_windows_cu` | Windows 中继：`status` / `start`（套件有变化时上传，在已登录的桌面会话里启动）/ `stop`（确认进程全部退出） |
+| `codex_spawn` | Start one or more (`tasks:[...]`) engine agents in the background. `engine` defaults to codex; antigravity / zcode are also available. Returns the agent_id immediately |
+| `codex_wait` | Wait for progress and return the new transcript; returns early when an agent finishes or needs input; sends MCP progress notifications |
+| `codex_run` | Blocking: start and run to completion, for small one-off tasks |
+| `codex_send` | Follow up: starts a new turn in the same thread when the agent is idle. Steering a running turn is Codex-only; other engines must wait for IDLE |
+| `codex_respond` | Answer an approval or question: accept / accept_for_session / decline / cancel |
+| `codex_interrupt` / `codex_close` | Interrupt the current turn / close the agent (optionally archiving the thread) |
+| `codex_status` / `codex_transcript` | List all agents, or show one agent's full log |
+| `codex_review` | Codex's built-in review (read-only) |
+| `codex_capabilities` | List available models, Codex MCP servers and tools, skills, and whether Computer Use is available |
+| `codex_mcp_call` | Call any MCP tool configured in Codex directly |
+| `codex_computer_use` | Run JS directly in Codex's `cua_repl` (screenshots come back as images); `target:"windows"` runs it on the Windows PC, `allow_apps` lists the apps the user has approved |
+| `codex_windows_cu` | Windows relay: `status` / `start` (uploads the kit if it changed and starts it in the logged-in desktop session) / `stop` (confirms every process has exited) |
 
-### Agent 状态
+### Agent states
 
-`QUEUED → STARTING → RUNNING ⇄ NEEDS_INPUT → FINISHING → IDLE`，或 `FAILED` / `INTERRUPTED` / `CLOSED`
+`QUEUED → STARTING → RUNNING ⇄ NEEDS_INPUT → FINISHING → IDLE`, or `FAILED` / `INTERRUPTED` / `CLOSED`
 
-`FINISHING` 表示最终答案已经产出，但 Codex 的 Stop hook（比如本机的 Nowledge Mem 保存，最长 120 秒）还在运行。此时结果已经可以使用，不必等待。
+`FINISHING` means the final answer is ready but Codex's Stop hooks (for example a memory-saving hook, up to 120 s) are still running. The result is already usable; you don't need to wait.
 
-日志在 `~/.codex-bridge/logs/<agent_id>.log`。thread 默认会持久化，也会出现在 Codex 历史里，名称带 `[claude]` 前缀。
+Logs are at `~/.codex-bridge/logs/<agent_id>.log`. Threads are persisted by default and appear in Codex history with a `[claude]` prefix.
 
-## ZCode 使用账号内置模型（GLM 等）
+## ZCode with your account's models (GLM, etc.)
 
-ZCode 命令行自己加载不到桌面 app 账号里的模型（如 GLM-5.3-Flash）。插件按桌面 app 的方式启动 ZCode：
-- 只读读取 `~/.zcode/v2/credentials.json` 和 `setting.json`，只解密当前生效的个人套餐所需的几项；
-- 密钥只在 ZCode 请求鉴权时，通过子进程的标准输入交给 ZCode，不写日志、不显示；
-- 插件写入的文件只放在 `~/.codex-bridge` 下，不改 `~/.zcode`。
+The ZCode CLI can't load the models from your desktop-app account (such as GLM-5.3-Flash) on its own. The plugin starts ZCode the way the desktop app does:
+- It reads `~/.zcode/v2/credentials.json` and `setting.json` read-only, and decrypts only the few fields the active personal plan needs.
+- The key is passed to ZCode through the child process's stdin, only when ZCode authenticates a request. It is never logged or displayed.
+- Everything the plugin writes lives under `~/.codex-bridge`; it never modifies `~/.zcode`.
 
-前提是先在终端运行 `zcode login`。目前只支持个人套餐；Start、Team、闲时套餐，以及令牌过期后的刷新，需要回到桌面 app 处理。原理见 `tests/zcode-runtime.md`。
+Run `zcode login` in a terminal first. Only personal plans are supported for now; Start, Team and off-peak plans, and refreshing an expired token, need to be handled in the desktop app. See `tests/zcode-runtime.md` for how it works.
 
-## 默认不过度门禁
+## No over-gating by default
 
-插件每启动一个 Codex 子 agent（不包括 Antigravity 和 ZCode），都会自动附上「避免过度防御和过度门禁」的指令：
-- 常规工程操作直接做，不先请示：读文件、跑构建和测试、改工作区内的文件、装项目依赖、联网；
-- 只有命令真的被沙箱挡住才申请提权；
-- 删除工作区外的数据、推送、碰凭据、发消息、花钱、改系统设置仍会停下来报告。
+Every Codex sub-agent the plugin starts (not Antigravity or ZCode) gets an instruction to avoid being over-defensive or over-gating:
+- Routine engineering work is done without asking first: reading files, running builds and tests, editing files in the workspace, installing project dependencies, using the network.
+- Escalation is requested only when the sandbox actually blocks a command.
+- It still stops and reports before deleting data outside the workspace, pushing, touching credentials, sending messages, spending money or changing system settings.
 
-想关掉的话，在插件的 `.mcp.json` 环境变量里设 `CODEX_BRIDGE_AUTONOMY=0`。
+To turn this off, set `CODEX_BRIDGE_AUTONOMY=0` in the plugin's `.mcp.json` env.
 
-## Antigravity 与 ZCode 引擎
+## Antigravity and ZCode engines
 
-所有任务都必须用匹配的原生 worker；并行时在**同一条消息里调用多个 Agent**，每个 worker 负责互不冲突的文件。主会话不直接 fan-out `codex_spawn(tasks)`。
+Every task must go through its matching native worker. For parallel work, **call several Agents in the same message**, each worker owning files that don't overlap. The main conversation never fans out `codex_spawn(tasks)` itself.
 
-| 引擎 | worker | Agent description 示例 | ID |
+| Engine | Worker | Agent description example | ID |
 |---|---|---|---|
-| Codex | codex-worker | `任务｜Codex gpt-6.1-sol·low` | cx- |
-| Antigravity | antigravity-worker | `任务｜Antigravity gemini-3.8-flash-high` | ag- |
-| ZCode | zcode-worker | `任务｜ZCode 默认模型` | zc- |
+| Codex | codex-worker | `task｜Codex gpt-6.1-sol·low` | cx- |
+| Antigravity | antigravity-worker | `task｜Antigravity gemini-3.8-flash-high` | ag- |
+| ZCode | zcode-worker | `task｜ZCode default model` | zc- |
 
-worker 使用 `codex_spawn({engine, prompt, cwd, model, effort, sandbox})`，然后反复 `codex_wait`。`tasks` 每项和 `codex_run` 也支持 engine。三种引擎共用 `CODEX_BRIDGE_MAX_PARALLEL` 队列、状态与日志。Codex 的既有调用、摘要和运行方式保持兼容。
+Workers call `codex_spawn({engine, prompt, cwd, model, effort, sandbox})` and then `codex_wait` repeatedly. Each `tasks` item and `codex_run` also accept `engine`. All three engines share the `CODEX_BRIDGE_MAX_PARALLEL` queue, status and logs. Existing Codex calls, summaries and behaviour stay compatible.
 
-| sandbox 选项 | Antigravity | ZCode |
+| sandbox option | Antigravity | ZCode |
 |---|---|---|
 | read-only | `--mode plan` | `--mode plan` |
-| workspace-write（默认） | `--mode accept-edits --dangerously-skip-permissions` | `--mode edit` |
+| workspace-write (default) | `--mode accept-edits --dangerously-skip-permissions` | `--mode edit` |
 | danger-full-access | `--mode accept-edits --dangerously-skip-permissions` | `--mode yolo` |
 
-这些映射是 CLI 的原生权限模式，不等于操作系统级文件沙箱。Antigravity 无头模式不能弹出权限询问，写入任务必须跳过交互审批；plan 模式保留原生限制。任务边界由提示词明确传达。桥接指令和 developer_instructions 放在提示词最前面；agy 帮助未提供单独的 developer 指令通道。
+These map to each CLI's native permission modes; they are not OS-level file sandboxes. Antigravity's headless mode can't show permission prompts, so write tasks must skip interactive approval; plan mode keeps its native restrictions. Task boundaries are stated in the prompt. Bridge instructions and developer_instructions go at the very start of the prompt, since agy's help shows no separate developer-instruction channel.
 
-- **实时进度**：Antigravity `--output-format stream-json` 的 init、step_update、result 被转成同样的时间戳日志；`text_delta` 拼成消息，result.response 标记为最终答案。ZCode 已实测支持帮助页未列出的 `--output-format stream-json`，实时记录工具、文本与 turn.completed / result；无需退回仅显示起止。
-- **模型**：Antigravity model / effort 对应 `--model` / `--effort`。ZCode 没有 `--model` 标志；显式指定 model 时使用每轮独立的 app-server，通过已安装模型目录解析 modelId 或 providerId/modelId，再设置会话模型，不修改工作区默认模型。ZCode effort 忽略并在摘要标题注明；Codex 默认模型环境变量仅作用于 Codex。
-- **续聊与中断**：空闲时 `codex_send` 创建新进程，使用 agy `--conversation`、ZCode `--resume` 恢复上下文；指定 ZCode 模型时使用等价的 `session/resume`。运行中不支持 steering，会返回明确错误。`codex_interrupt` 终止整个进程组，状态为 INTERRUPTED；`codex_close` 关闭桥接 agent，保留 CLI 原生历史（archive 仅 Codex 支持）。
-- **最终状态**：FINISHING 表示已有最终答案，仍需等待进程退出后到 IDLE 才能续聊；进程退出前保留队列名额。无结果、非零退出、原生错误不会被当作成功。
-- **自动 shim**：桥接会刷新 `~/.codex-bridge/zcode-shim/zcode.cjs` 和 `provider/zcode-builtin.json` 两个符号链接，修复打包 CLI 按 argv[1] 定位 provider 的问题；支持 `ZCODE_ENTRY`、`ZCODE_APP`。无需修改 ZCode 安装内容或全局配置。
-- **能力边界**：`codex_capabilities` 的 engines 区列出本机可用 CLI 路径、版本与 agy 模型。可用表示命令可启动，不保证每个远程模型都有容量。Codex MCP / Computer Use / review / skills、图片附件、output_schema、config、ephemeral 与审批中继仍为 Codex 专属；新引擎不接受这些桥接选项。
+- **Live progress**: Antigravity's `--output-format stream-json` init, step_update and result events become the same timestamped log; `text_delta` chunks are joined into messages and result.response is marked as the final answer. ZCode was verified to support `--output-format stream-json` (not listed in its help), so tools, text and turn.completed / result are recorded live instead of only start and end.
+- **Models**: Antigravity model / effort map to `--model` / `--effort`. ZCode has no `--model` flag; when a model is given, each turn uses its own app-server, resolves modelId or providerId/modelId from the installed model catalog, and sets the session model without changing the workspace default. ZCode ignores effort and says so in the summary title. The Codex default-model env vars apply to Codex only.
+- **Follow-ups and interrupts**: when idle, `codex_send` starts a new process and resumes context with agy `--conversation` or ZCode `--resume` (the equivalent `session/resume` when a ZCode model is specified). Steering a running turn isn't supported and returns a clear error. `codex_interrupt` kills the whole process group and sets INTERRUPTED; `codex_close` closes the bridge agent and keeps the CLI's native history (archive is Codex-only).
+- **Final states**: FINISHING means the final answer exists, but you must wait for the process to exit (IDLE) before following up; the queue slot is held until then. No result, a non-zero exit or a native error is never treated as success.
+- **Automatic shim**: the bridge refreshes two symlinks, `~/.codex-bridge/zcode-shim/zcode.cjs` and `provider/zcode-builtin.json`, to fix the packaged CLI locating its provider via argv[1]. `ZCODE_ENTRY` and `ZCODE_APP` are supported. Nothing in the ZCode install or global config is modified.
+- **Limits**: the engines section of `codex_capabilities` lists the local CLI paths, versions and agy models. "Available" means the command starts; it doesn't guarantee capacity for every remote model. Codex MCP / Computer Use / review / skills, image attachments, output_schema, config, ephemeral and the approval relay remain Codex-only; the other engines reject these options.
 
-真实验收：
+Real end-to-end checks:
 
 ```bash
 node plugins/codex-bridge/tests/engines.mjs
@@ -167,28 +169,28 @@ node plugins/codex-bridge/tests/smoke.mjs
 claude plugin validate plugins/codex-bridge
 ```
 
-## Computer Use 说明
+## Computer Use
 
-- 本机的 Computer Use 来自 Codex config 中的 `cua_repl` MCP（由 ChatGPT.app 提供）。可以用 `codex_capabilities` 确认是否可用
-- Codex 对每个应用都会弹出「Allow Computer Use to use X?」。**这个授权只在 agent 轮次内生效**：
-  - Codex agent 路线（`computer_use: true` 或 `codex-computer-use` 子 agent）：授权请求以 `NEEDS_INPUT` 的形式交给 Claude
-  - 直接调用 `codex_computer_use`：只能用于清点（`cua.listApps()`、`listBrowsers()`、`getState()`），以及你在 Codex 里设为「始终允许」的应用；其他应用会提示改走 agent 路线
-- 删除、发送、提交、付款、改设置、输入凭据这类操作，中继 agent 一律拒绝，并交回给你确认
+- Local Computer Use comes from the `cua_repl` MCP server in your Codex config (provided by ChatGPT.app). Use `codex_capabilities` to check whether it's available.
+- Codex asks "Allow Computer Use to use X?" for each app. **That permission only applies inside an agent turn**:
+  - Codex agent route (`computer_use: true` or the `codex-computer-use` sub-agent): the permission request is handed to Claude as `NEEDS_INPUT`.
+  - Calling `codex_computer_use` directly: only for inventory (`cua.listApps()`, `listBrowsers()`, `getState()`) and apps you set to "Always allow" in Codex; for other apps it tells you to use the agent route.
+- The relay agent always declines deleting, sending, submitting, paying, changing settings or entering credentials, and hands those back to you.
 
 ## Windows Computer Use
 
-让 Mac 上的 Claude（或 Codex 子 agent）操作一台 Windows 电脑，用的是那台电脑上 Codex Desktop 自带的 Computer Use。适合 Windows 桌面应用的实机验收：中文输入、文件夹对话框这类 UI Automation 脚本不好处理的场景。
+Lets Claude on a Mac (or a Codex sub-agent) operate a Windows PC using the Computer Use built into Codex Desktop on that PC. Useful for hands-on acceptance testing of Windows desktop apps, where UI Automation scripts struggle with things like CJK input or folder dialogs.
 
-### Windows 端准备（一次性，由你亲自完成）
+### Windows setup (one-time, done by you)
 
-- 安装 Codex Desktop，用 ChatGPT 账号登录，开启 Computer Use 并至少用过一次（这样插件和运行时才会装好）。账号是否允许使用 Computer Use 由服务端决定，插件不会绕过
-- 安装 Node.js 并加入 PATH（或在配置里写 `remoteNode`）
-- 开启 OpenSSH Server，给这个 Windows 用户配好密钥登录
-- 使用时 Windows 用户必须已登录、桌面未锁屏。需要 Windows 10 1809 及以上（用到 `conhost --headless`）
+- Install Codex Desktop, log in with your ChatGPT account, enable Computer Use and use it at least once (so the plugin and runtime get installed). Whether your account may use Computer Use is decided server-side; the plugin doesn't bypass it.
+- Install Node.js and add it to PATH (or set `remoteNode` in the config).
+- Enable OpenSSH Server and set up key-based login for this Windows user.
+- While in use, the Windows user must be logged in with the desktop unlocked. Requires Windows 10 1809 or later (uses `conhost --headless`).
 
-### Mac 端配置
+### Mac configuration
 
-新建 `~/.codex-bridge/windows-cu.json`（可用环境变量 `CODEX_BRIDGE_WINDOWS_CU_CONFIG` 换路径）：
+Create `~/.codex-bridge/windows-cu.json` (the env var `CODEX_BRIDGE_WINDOWS_CU_CONFIG` changes the path):
 
 ```json
 {
@@ -199,98 +201,98 @@ claude plugin validate plugins/codex-bridge
 }
 ```
 
-- 同时写了 `identity` 和 `knownHosts` 时不读 `~/.ssh/config`，并固定主机密钥；两个都不写则沿用你的 `~/.ssh/config`（`host` 可以写成别名）。始终 `BatchMode=yes`，不会弹出密码提示
-- 可选：`port`（SSH 端口）、`remoteDir`（默认 `%LOCALAPPDATA%\codex-bridge\windows-cu`，路径不能有空格）、`remoteNode`、`relayPort`（默认 47614）、`idleExitSec`（中继空闲多少秒后自动退出，默认 1800）
+- When both `identity` and `knownHosts` are set, `~/.ssh/config` is ignored and the host key is pinned. When neither is set, your `~/.ssh/config` is used (so `host` can be an alias). `BatchMode=yes` is always on, so there are no password prompts.
+- Optional: `port` (SSH port), `remoteDir` (default `%LOCALAPPDATA%\codex-bridge\windows-cu`, no spaces allowed), `remoteNode`, `relayPort` (default 47614), `idleExitSec` (seconds of idle before the relay exits, default 1800).
 
-### 使用
+### Use
 
-- **Claude 直接操作（不经模型）**：`codex_computer_use` 加 `target:"windows"`。实测：连上之后单个动作约 0.1–0.5 秒（绑定窗口加截图偶尔到 2 秒左右）；每个 Claude 会话的第一次调用要检查套件和中继，约 7 秒；中继冷启动约 15 秒。连接保留 10 分钟，`app` 等变量在多次调用之间保留
-- **交给 Codex agent**：`/codex-bridge:codex-cu` 里写明「在 Windows 上」，或 `codex_spawn` 加 `computer_use_target:"windows"`。Codex 看到的是 MCP 服务 `cua_windows`
-- 第一次使用会自动上传套件、启动中继，之后在结果开头注明。用 `codex_windows_cu` 可以查看状态或手动停止
+- **Claude drives it directly (no model)**: `codex_computer_use` with `target:"windows"`. Measured: once connected, a single action takes about 0.1–0.5 s (binding a window plus a screenshot occasionally ~2 s); the first call in each Claude session checks the kit and relay, ~7 s; a cold relay start is ~15 s. The connection stays open for 10 minutes and variables like `app` persist between calls.
+- **Hand it to a Codex agent**: say "on Windows" in `/codex-bridge:codex-cu`, or pass `computer_use_target:"windows"` to `codex_spawn`. Codex sees an MCP server named `cua_windows`.
+- The first use uploads the kit and starts the relay automatically, noted at the top of the result. Use `codex_windows_cu` to check status or stop it manually.
 
-Windows 版 API 与 Mac 不同：
+The Windows API differs from the Mac one:
 
 ```js
-// app 是进程路径，如 "process:C:\\…\\DeepSeek Harness.exe"；授权询问里用的是显示名 "DeepSeek Harness"
+// app is a process path such as "process:C:\\…\\DeepSeek Harness.exe"; the permission prompt uses the display name "DeepSeek Harness"
 const w = (await cua.listWindows()).find((w) => /DeepSeek Harness/i.test(`${w.app} ${w.title}`));
-const app = await cua.getApp({ windowId: w.id });   // 会话里第一个调用必须是 getState 或 getApp
-const regions = await app.getScreenshot();         // 有对话框时返回多个区域 {id, zIndex, width, height}
+const app = await cua.getApp({ windowId: w.id });   // the first call in a session must be getState or getApp
+const regions = await app.getScreenshot();         // returns several regions {id, zIndex, width, height} when a dialog is open
 const top = [...regions].sort((a, b) => b.zIndex - a.zIndex)[0];
-await app.click([830, 529], { screenshotId: top.id }); // 坐标点击前先截新图，多区域时带上区域 id
-await app.typeText("中文输入没问题");
+await app.click([830, 529], { screenshotId: top.id }); // take a fresh screenshot before coordinate clicks; pass the region id when there are several
+await app.typeText("你好 — non-ASCII input works");
 await app.pressKey("ctrl+a");
 ```
 
-### 验证情况（2026-10-30）
+### Verification status (2026-10-30)
 
-- 已实测（Windows 11 23H2，真实 Codex Desktop Computer Use）：首次使用自动上传套件、经一次性计划任务在桌面会话启动中继（进程无可见窗口、只监听 127.0.0.1、计划任务已删除）；列出窗口、绑定 DeepSeek Harness 窗口、截图、读取无障碍树；授权按 `allow_apps` 自动同意；停止后中继及其子进程全部退出
-- 关闭文件夹对话框：在同一中继设计的试点中实测通过，本插件尚未重跑
-- Codex agent 路线（`computer_use_target:"windows"`）：已用真实模型（gpt-6.1-sol high）跑通，在 Windows DeepSeek Harness 里新建对话、点击、输入中文消息并读取结果。Codex agent 会给每次工具调用附带自己的沙箱状态（`codex/sandbox-state-meta`，里面是 Mac 路径），Windows 上的 node_repl 会因此拒绝执行；`connect.mjs` 转发前去掉这一项，其余 `_meta` 原样保留
-- 带 `persist:"session"` 同意后，Windows 仍会对每个动作再次询问（插件不注入轮次元数据）；插件按 `allow_apps` 自动应答，不影响使用
+- Tested live (Windows 11 23H2, real Codex Desktop Computer Use): first use uploads the kit and starts the relay in the desktop session through a one-time scheduled task (no visible window, listens only on 127.0.0.1, scheduled task deleted); listing windows, binding the DeepSeek Harness window, screenshots, reading the accessibility tree; permissions auto-approved per `allow_apps`; after stop, the relay and all its children exit.
+- Closing a folder dialog: passed in a pilot with the same relay design; not yet re-run in this plugin.
+- Codex agent route (`computer_use_target:"windows"`): passed with a real model (gpt-6.1-sol high), creating a conversation in DeepSeek Harness on Windows, clicking, typing a Chinese message and reading the result. A Codex agent attaches its own sandbox state (`codex/sandbox-state-meta`, containing Mac paths) to every tool call, which makes node_repl on Windows refuse to run; `connect.mjs` strips that one entry before forwarding and keeps the rest of `_meta` unchanged.
+- After approving with `persist:"session"`, Windows still asks again for every action (the plugin doesn't inject turn metadata); the plugin answers per `allow_apps`, so this doesn't get in the way.
 
-### 授权与安全
+### Permissions and safety
 
-- Windows 会询问「Allow Codex to use <App>?」。直接调用时只有 `allow_apps` 里写明的应用会被同意，范围是本次会话，从不选「始终允许」；其他一律拒绝，并在结果里说明。走 Codex agent 时，这个询问以 `NEEDS_INPUT` 交给中继 agent
-- 中继由一次性的交互式计划任务启动在你的桌面会话里，启动后计划任务立即删除；只监听 `127.0.0.1`，连接需要随机令牌。令牌生成后只存在 Windows 本机，不回传 Mac
-- cua_repl 的 JS 内核仍在 Codex 自己的沙箱里；Computer Use 助手程序和 Codex Desktop 一样运行在沙箱外，并由它自己检查 ChatGPT 登录与账号策略
-- 插件不读取、不打印任何凭据；日志只记录事件、方法名、耗时和字节数
-- 同一个桌面同一时间只应有一个操作方。开始点击或输入前，先确认没有人在用那台电脑
+- Windows asks "Allow Codex to use <App>?". On direct calls, only apps listed in `allow_apps` are approved, for this session only, never "Always allow"; everything else is declined and reported in the result. On the Codex agent route, the prompt goes to the relay agent as `NEEDS_INPUT`.
+- The relay is started in your desktop session by a one-time interactive scheduled task, which is deleted right after launch. It listens only on `127.0.0.1` and connections need a random token. The token stays on the Windows machine and is never sent back to the Mac.
+- The cua_repl JS kernel still runs inside Codex's own sandbox; the Computer Use helper runs outside the sandbox just as it does for Codex Desktop, and checks the ChatGPT login and account policy itself.
+- The plugin never reads or prints credentials; logs record only events, method names, durations and byte counts.
+- Only one operator should use a desktop at a time. Before clicking or typing, make sure nobody else is using that computer.
 
-## 配置（环境变量，写在 `plugins/codex-bridge/.mcp.json` 的 `env` 中）
+## Configuration (environment variables in the `env` of `plugins/codex-bridge/.mcp.json`)
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 |---|---|---|
-| `CODEX_BRIDGE_MAX_PARALLEL` | 8 | 最大并行 agent 数 |
-| `CODEX_BRIDGE_SANDBOX` | workspace-write | 默认沙箱 |
-| `CODEX_BRIDGE_APPROVAL_POLICY` | on-request | Codex 何时请求审批 |
-| `CODEX_BRIDGE_APPROVAL_MODE` | ask | ask = 交给 Claude；auto = 全部同意；deny = 全部拒绝 |
-| `CODEX_BRIDGE_MODEL` / `CODEX_BRIDGE_EFFORT` | 跟随 Codex config | 默认模型和推理强度（本机 config 是 max，速度较慢；中继任务建议设为 medium） |
-| `CODEX_BIN` | codex | Codex 可执行文件路径 |
-| `AGY_BIN` | agy | Antigravity 可执行文件路径 |
-| `ZCODE_APP` | /Applications/ZCode.app | ZCode 应用位置 |
-| `ZCODE_ENTRY` | ZCODE_APP/Contents/Resources/glm/zcode.cjs | 优先指定 ZCode 入口；自动查找相邻或应用内 provider 配置 |
-| `CODEX_BRIDGE_APP_SERVER_ARGS` | 空 | 追加给 `codex app-server` 的参数，比如 `--disable hooks` |
-| `CODEX_BRIDGE_LOG_DIR` | ~/.codex-bridge/logs | 日志目录 |
-| `CODEX_BRIDGE_WINDOWS_CU_CONFIG` | ~/.codex-bridge/windows-cu.json | Windows Computer Use 配置文件 |
-| `CODEX_BRIDGE_WINDOWS_CU_IDLE_SEC` | 600 | 直接调用的 SSH 连接空闲多少秒后关闭 |
+| `CODEX_BRIDGE_MAX_PARALLEL` | 8 | Maximum number of parallel agents |
+| `CODEX_BRIDGE_SANDBOX` | workspace-write | Default sandbox |
+| `CODEX_BRIDGE_APPROVAL_POLICY` | on-request | When Codex asks for approval |
+| `CODEX_BRIDGE_APPROVAL_MODE` | ask | ask = hand to Claude; auto = approve all; deny = decline all |
+| `CODEX_BRIDGE_MODEL` / `CODEX_BRIDGE_EFFORT` | Follows Codex config | Default model and reasoning effort (if your Codex config uses a very high effort, medium is a faster choice for relayed tasks) |
+| `CODEX_BIN` | codex | Path to the Codex executable |
+| `AGY_BIN` | agy | Path to the Antigravity executable |
+| `ZCODE_APP` | /Applications/ZCode.app | ZCode app location |
+| `ZCODE_ENTRY` | ZCODE_APP/Contents/Resources/glm/zcode.cjs | ZCode entry point override; provider config next to it or inside the app is found automatically |
+| `CODEX_BRIDGE_APP_SERVER_ARGS` | empty | Extra arguments for `codex app-server`, e.g. `--disable hooks` |
+| `CODEX_BRIDGE_LOG_DIR` | ~/.codex-bridge/logs | Log directory |
+| `CODEX_BRIDGE_WINDOWS_CU_CONFIG` | ~/.codex-bridge/windows-cu.json | Windows Computer Use config file |
+| `CODEX_BRIDGE_WINDOWS_CU_IDLE_SEC` | 600 | Seconds of idle before the direct-call SSH connection closes |
 
-## 测试
+## Tests
 
 ```bash
 cd plugins/codex-bridge && node tests/smoke.mjs --cu
 ```
 
-- `tests/smoke.mjs`：2 个 agent 并行、追问、状态查询，`--cu` 再加上 Computer Use 直接调用
-- `tests/engines.mjs`：真实 Antigravity/ZCode 并行写文件、ZCode 同会话记忆续聊、Antigravity plan 模式只读任务、运行中 steering 拒绝、日志检查；`AGY_TEST_MODEL` 可指定测试模型（默认 claude-sonnet-4-6），`ZCODE_TEST_MODEL` 可额外验收指定模型及 app-server 续聊
-- `tests/features.mjs`：审批中继、代码审查、能力清单
-- `tests/engine-lifecycle.mjs`：离线回归共享队列、续聊参数、权限映射、进程树中断、失败隔离和 Codex 标题兼容
-- `tests/cu-agent.mjs`：通过 Codex agent 只读地使用 Computer Use，会请求 Finder 授权
-- `tests/windows-cu.mjs`：离线回归 Windows 中继（模拟 cua_repl 与助手程序）：认证、并发连接、停止、管道帧与审批转发、去掉 Codex agent 的沙箱状态、只同意指定应用、配置校验
-- `tests/windows-cu-live.mjs`：真实 Windows 只读验收（列出窗口、绑定窗口、截图），需要已配置的 Windows 电脑
+- `tests/smoke.mjs`: 2 agents in parallel, follow-ups, status; `--cu` adds direct Computer Use calls.
+- `tests/engines.mjs`: real Antigravity/ZCode writing files in parallel, ZCode same-session memory on follow-up, Antigravity read-only task in plan mode, rejection of steering while running, log checks. `AGY_TEST_MODEL` sets the test model (default claude-sonnet-4-6); `ZCODE_TEST_MODEL` additionally checks a specific model and app-server follow-ups.
+- `tests/features.mjs`: approval relay, code review, capability listing.
+- `tests/engine-lifecycle.mjs`: offline regression for the shared queue, follow-up arguments, permission mapping, process-tree interrupts, failure isolation and Codex title compatibility.
+- `tests/cu-agent.mjs`: read-only Computer Use through a Codex agent; asks for Finder permission.
+- `tests/windows-cu.mjs`: offline regression for the Windows relay (simulated cua_repl and helper): auth, concurrent connections, stop, pipe framing and approval forwarding, stripping the Codex agent's sandbox state, approving only listed apps, config validation.
+- `tests/windows-cu-live.mjs`: real read-only Windows check (list windows, bind a window, screenshot); needs a configured Windows PC.
 
-## 架构
+## Architecture
 
 ```
-Claude 主会话 ──Agent──▶ codex-worker 子 agent（原生展示）
-                              │ MCP 工具调用（codex_spawn / codex_wait / codex_respond …）
-                              ▼
-                 codex-bridge MCP 服务（server/index.mjs，零依赖）
-                   AgentManager：三引擎 agent 池、共享队列、事件流、Codex 审批路由
-                              │ JSON-RPC (stdio)
-                              ▼
-                    codex app-server（单进程，多 thread 并行）
-                     ├─ thread A ─ Codex agent（shell / 文件改动 / MCP / cua_repl）
-                     ├─ thread B ─ …
-                     └─ utility thread ─ codex_mcp_call / codex_computer_use 的直连调用
+Claude main session ──Agent──▶ codex-worker sub-agent (native display)
+                                    │ MCP tool calls (codex_spawn / codex_wait / codex_respond …)
+                                    ▼
+                    codex-bridge MCP server (server/index.mjs, zero dependencies)
+                      AgentManager: agent pool for 3 engines, shared queue, event stream, Codex approval routing
+                                    │ JSON-RPC (stdio)
+                                    ▼
+                         codex app-server (one process, many threads in parallel)
+                          ├─ thread A ─ Codex agent (shell / file changes / MCP / cua_repl)
+                          ├─ thread B ─ …
+                          └─ utility thread ─ direct calls from codex_mcp_call / codex_computer_use
 
-Windows Computer Use（server/windows-cu.mjs）
-  Mac ── ssh … node connect.mjs ──▶ Windows 中继（127.0.0.1，用户桌面会话）
-                                      ├─ cua_repl（每个连接一个，JS 内核在 Codex 沙箱内）
-                                      └─ Computer Use 命名管道 ─▶ codex-computer-use.exe（沙箱外）
+Windows Computer Use (server/windows-cu.mjs)
+  Mac ── ssh … node connect.mjs ──▶ Windows relay (127.0.0.1, user desktop session)
+                                      ├─ cua_repl (one per connection, JS kernel inside the Codex sandbox)
+                                      └─ Computer Use named pipe ─▶ codex-computer-use.exe (outside the sandbox)
 ```
 
-Antigravity / ZCode 由 `server/engines.mjs` 每轮启动独立子进程，事件进入同一个 AgentManager；不依赖 Codex app-server 运行。
+Antigravity / ZCode run as a separate child process per turn via `server/engines.mjs`, feeding events into the same AgentManager; they don't depend on the Codex app-server.
 
-## 许可证
+## License
 
 [MIT](LICENSE)
